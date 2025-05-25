@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Show do Milhão - Quiz</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; }
+        .quiz-container { width: 400px; margin: auto; }
+        .question { font-size: 22px; margin-bottom: 10px; }
+        .btn { display: block; width: 100%; padding: 10px; margin: 5px; cursor: pointer; background: #007bff; color: white; border: none; }
+        .btn:hover { background: #0056b3; }
+        /* Estilos adicionais para os botões de resposta */
+        .btn.correct { background-color: green !important; }
+        .btn.wrong { background-color: red !important; }
+    </style>
+</head>
+<body>
+    <div class="quiz-container" id="quiz-container">
+        <h1>Show do Milhão - Quiz</h1>
+        <p class="question" id="question">Carregando perguntas...</p> <button class="btn" onclick="checkAnswer(0)">A) <span id="option0"></span></button>
+        <button class="btn" onclick="checkAnswer(1)">B) <span id="option1"></span></button>
+        <button class="btn" onclick="checkAnswer(2)">C) <span id="option2"></span></button>
+        <button class="btn" onclick="checkAnswer(3)">D) <span id="option3"></span></button>
+        <p id="result"></p>
+        <p id="score">Pontuação: 0</p>
+        <button class="btn" onclick="nextQuestion()">Próxima Pergunta</button>
+        <p id="ranking"></p>
+
+        <audio id="correctSound" src="https://www.fesliyanstudios.com/play/Sound-Effects/correct-answer.mp3"></audio>
+        <audio id="wrongSound" src="https://www.fesliyanstudios.com/play/Sound-Effects/wrong-answer.mp3"></audio>
+    </div>
+
+    <script>
+        // ** https://docs.google.com/spreadsheets/d/e/2PACX-1vRpr8bmloINwpvABvVcUsYA7pnDok1hDUv0ovHPPceisVW0WZZ0_6NY6kwrE7vUJ_2-e-jXGkn-_cZD/pub?gid=0&single=true&output=csv **
+        // Certifique-se que o link termina com "&output=csv"
+        const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRpr8bmloINwpvABvVcUsYA7pnDok1hDUv0ovHPPceisVW0WZZ0_6NY6kwrE7vUJ_2-e-jXGkn-_cZD/pub?gid=0&single=true&output=csv';
+
+        let perguntas = []; // Será preenchido dinamicamente
+        let perguntaAtual = 0;
+        let pontuacao = 0;
+
+        // Função auxiliar para limpar aspas em strings CSV
+        function cleanString(str) {
+            return str.replace(/^"|"$/g, '').trim();
+        }
+
+        async function carregarPerguntasDoSheets() {
+            try {
+                document.getElementById("question").innerText = "Carregando perguntas...";
+                const response = await fetch(SHEET_URL);
+                const csvText = await response.text();
+
+                const linhas = csvText.split('\n').filter(line => line.trim() !== '');
+
+                if (linhas.length === 0) {
+                    document.getElementById("question").innerText = "Nenhuma pergunta encontrada na planilha.";
+                    return;
+                }
+
+                // Pega os cabeçalhos da primeira linha e limpa
+                const cabecalhosRaw = linhas.shift();
+                const cabecalhos = cabecalhosRaw.split(',').map(header => cleanString(header));
+
+                perguntas = linhas.map(linha => {
+                    const colunas = linha.split(',');
+                    // Mapeia colunas usando os cabeçalhos para robustez
+                    const perguntaTexto = cleanString(colunas[cabecalhos.indexOf('Pergunta')]);
+                    const opcoesTexto = [
+                        cleanString(colunas[cabecalhos.indexOf('OpcaoA')]),
+                        cleanString(colunas[cabecalhos.indexOf('OpcaoB')]),
+                        cleanString(colunas[cabecalhos.indexOf('OpcaoC')]),
+                        cleanString(colunas[cabecalhos.indexOf('OpcaoD')])
+                    ];
+                    // Converte para número inteiro
+                    const corretaIndice = parseInt(cleanString(colunas[cabecalhos.indexOf('Correta')]));
+
+                    return {
+                        pergunta: perguntaTexto,
+                        opcoes: opcoesTexto,
+                        correta: corretaIndice
+                    };
+                }).filter(p => p.pergunta && p.opcoes.every(opt => opt !== undefined) && !isNaN(p.correta)); // Filtra linhas incompletas
+
+                if (perguntas.length === 0) {
+                    document.getElementById("question").innerText = "Nenhuma pergunta válida encontrada após o processamento.";
+                    return;
+                }
+
+                embaralharPerguntas();
+                carregarPergunta();
+
+            } catch (error) {
+                console.error("Erro ao carregar perguntas do Google Sheets:", error);
+                document.getElementById("question").innerText = "Erro ao carregar as perguntas. Verifique a URL da planilha e se ela está pública como CSV.";
+            }
+        }
+
+        function embaralharPerguntas() {
+            for (let i = perguntas.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [perguntas[i], perguntas[j]] = [perguntas[j], perguntas[i]]; // Troca elementos
+            }
+        }
+
+        function carregarPergunta() {
+            if (perguntas.length === 0) {
+                document.getElementById("question").innerText = "Nenhuma pergunta disponível.";
+                return;
+            }
+
+            document.getElementById("question").innerText = perguntas[perguntaAtual].pergunta;
+            for (let i = 0; i < 4; i++) {
+                document.getElementById(`option${i}`).innerText = perguntas[perguntaAtual].opcoes[i];
+            }
+            document.getElementById("result").innerText = "";
+            document.getElementById("ranking").innerText = "";
+
+            // Habilita e restaura a cor dos botões de resposta
+            document.querySelectorAll('.btn[onclick^="checkAnswer"]').forEach(button => {
+                button.disabled = false;
+                button.classList.remove('correct', 'wrong'); // Remove classes de cor anteriores
+                button.style.backgroundColor = ''; // Volta a cor original (definida no CSS)
+            });
+        }
+
+        function checkAnswer(resposta) {
+            // Desabilita os botões para evitar múltiplos cliques e travar a resposta
+            document.querySelectorAll('.btn[onclick^="checkAnswer"]').forEach(button => {
+                button.disabled = true;
+            });
+
+            if (resposta === perguntas[perguntaAtual].correta) {
+                document.getElementById("result").innerText = "✅ Certo! 🎉";
+                pontuacao += 10;
+                document.getElementById("correctSound").play();
+                document.getElementById(`option${resposta}`).closest('.btn').classList.add('correct');
+            } else {
+                document.getElementById("result").innerText = "❌ Errado! A resposta correta é " + perguntas[perguntaAtual].opcoes[perguntas[perguntaAtual].correta] + ".";
+                document.getElementById("wrongSound").play();
+                document.getElementById(`option${resposta}`).closest('.btn').classList.add('wrong');
+                document.getElementById(`option${perguntas[perguntaAtual].correta}`).closest('.btn').classList.add('correct'); // Mostra a correta
+            }
+            document.getElementById("score").innerText = "Pontuação: " + pontuacao;
+        }
+
+        function nextQuestion() {
+            if (perguntaAtual < perguntas.length - 1) {
+                perguntaAtual++;
+                carregarPergunta();
+            } else {
+                document.getElementById("result").innerText = "🎉 Quiz finalizado! Sua pontuação final foi: " + pontuacao + " pontos.";
+                exibirRanking();
+                // Esconder os botões de resposta e "Próxima Pergunta" no final
+                document.querySelectorAll('.btn[onclick^="checkAnswer"], .btn[onclick="nextQuestion()"]').forEach(button => {
+                    button.style.display = 'none';
+                });
+
+                // Adicionar o botão de reiniciar
+                const quizContainer = document.getElementById("quiz-container");
+                if (quizContainer && !document.querySelector('.btn[onclick="reiniciarQuiz()"]')) { // Evita adicionar múltiplas vezes
+                    const reiniciarBtn = document.createElement('button');
+                    reiniciarBtn.className = 'btn';
+                    reiniciarBtn.textContent = 'Jogar Novamente';
+                    reiniciarBtn.onclick = reiniciarQuiz;
+                    quizContainer.appendChild(reiniciarBtn);
+                }
+            }
+        }
+
+        function exibirRanking() {
+            let mensagemRanking = "";
+            if (perguntas.length === 0) {
+                mensagemRanking = "Não foi possível calcular o ranking sem perguntas.";
+            } else {
+                const pontuacaoMaxima = perguntas.length * 10;
+                if (pontuacao >= (pontuacaoMaxima * 0.8)) { // 80% de acerto
+                    mensagemRanking = "🏆 Parabéns, você é um verdadeiro milionário!";
+                } else if (pontuacao >= (pontuacaoMaxima * 0.5)) { // 50% de acerto
+                    mensagemRanking = "👏 Muito bem, mas ainda falta um pouco para o milhão!";
+                } else {
+                    mensagemRanking = "😕 Que pena, tente novamente para melhorar sua pontuação!";
+                }
+            }
+            document.getElementById("ranking").innerText = mensagemRanking;
+        }
+
+        function reiniciarQuiz() {
+            perguntaAtual = 0;
+            pontuacao = 0;
+            document.getElementById("score").innerText = "Pontuação: 0";
+            document.getElementById("result").innerText = "";
+            document.getElementById("ranking").innerText = "";
+
+            // Restaurar visibilidade dos botões de resposta e "Próxima Pergunta"
+            document.querySelectorAll('.btn[onclick^="checkAnswer"], .btn[onclick="nextQuestion()"]').forEach(button => {
+                button.style.display = 'block';
+            });
+
+            // Remover botão de reiniciar
+            const reiniciarBtn = document.querySelector('.btn[onclick="reiniciarQuiz()"]');
+            if (reiniciarBtn) {
+                reiniciarBtn.remove();
+            }
+
+            embaralharPerguntas(); // Embaralha novamente para um novo jogo
+            carregarPergunta();
+        }
+
+        // Iniciar o carregamento das perguntas quando a página é carregada
+        carregarPerguntasDoSheets();
+    </script>
+</body>
+</html>
